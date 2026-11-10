@@ -1,0 +1,63 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install dependencies
+        run: |
+          brew install xcodegen
+
+      - name: Build Go iOS Library
+        run: |
+          chmod +x build_ios.sh
+          ./build_ios.sh
+          mkdir -p ios-app/Lib
+          cp output/ios/liboflux.a ios-app/Lib/liboflux.a
+          cp output/ios/liboflux.h ios-app/Lib/liboflux.h
+
+      - name: Generate Xcode Project
+        working-directory: ios-app
+        run: |
+          xcodegen generate
+
+      - name: Build unsigned .app
+        working-directory: ios-app
+        run: |
+          xcodebuild -project OpenFlux.xcodeproj \
+            -scheme OpenFlux \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build \
+            -derivedDataPath derived_data
+
+      - name: Package into .ipa
+        working-directory: ios-app
+        run: |
+          mkdir -p Payload
+          APP_PATH=$(find derived_data -name "OpenFlux.app" -type d | head -n 1)
+          cp -r "$APP_PATH" Payload/
+          zip -r OpenFlux.ipa Payload
+          ls -lh OpenFlux.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenFlux-iOS-IPA
+          path: ios-app/OpenFlux.ipa
+          retention-days: 7
